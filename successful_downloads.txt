@@ -1,0 +1,5 @@
+域名,图标URL
+amz123.com,https://www.google.com/s2/favicons?domain=amz123.com&sz=256
+baidu.com,https://www.google.com/s2/favicons?domain=baidu.com&sz=256
+google.com,https://www.google.com/s2/favicons?domain=google.com&sz=256
+tt123.com,https://www.google.com/s2/favicons?domain=tt123.com&sz=256
