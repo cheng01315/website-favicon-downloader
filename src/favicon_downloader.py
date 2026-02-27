@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 
 class FaviconDownloader:
-    def __init__(self, log_callback=None):
+    def __init__(self):
         self.website_ico_dir = Path("website_ico")
         self.website_ico_dir.mkdir(exist_ok=True)
         self.session = requests.Session()
@@ -21,15 +21,6 @@ class FaviconDownloader:
             "https://icons.duckduckgo.com/ip3/{}.ico",  # DuckDuckGo favicon API
             "https://icon.horse/icon/{}"  # Icon Horse API
         ]
-        
-        self.log_callback = log_callback  # 用于GUI的日志回调函数
-    
-    def log_message(self, message):
-        """发送日志消息到GUI"""
-        if self.log_callback:
-            self.log_callback(message)
-        else:
-            print(message)
     
     def read_domains_from_file(self, file_path):
         """从txt文件读取网站域名列表"""
@@ -45,9 +36,9 @@ class FaviconDownloader:
                             domain = parsed.netloc
                         domains.append(domain)
         except FileNotFoundError:
-            self.log_message(f"错误：文件 {file_path} 不存在")
+            print(f"错误：文件 {file_path} 不存在")
         except Exception as e:
-            self.log_message(f"读取文件时发生错误：{e}")
+            print(f"读取文件时发生错误：{e}")
         
         return domains
     
@@ -66,18 +57,18 @@ class FaviconDownloader:
                     if 'image' in content_type or (content_type == '' and len(response.content) > 0):
                         # 检查是否为非常小的图像（可能是默认图标）
                         if len(response.content) < 100:  # 小于100字节可能是默认图标
-                            self.log_message(f"警告: {domain} 的图标文件过小 ({len(response.content)} 字节)，可能不是有效的图标")
+                            print(f"警告: {domain} 的图标文件过小 ({len(response.content)} 字节)，可能不是有效的图标")
                             continue
                         return url, response.content
             except Exception as e:
-                self.log_message(f"尝试API {api_url.format(domain)} 失败: {e}")
+                print(f"尝试API {api_url.format(domain)} 失败: {e}")
                 continue
         
         return None, None
     
     def download_favicon(self, domain):
         """下载单个网站的图标"""
-        self.log_message(f"正在下载 {domain} 的图标...")
+        print(f"正在下载 {domain} 的图标...")
         
         favicon_url, favicon_content = self.get_favicon_url(domain)
         
@@ -91,13 +82,13 @@ class FaviconDownloader:
             try:
                 with open(file_path, 'wb') as f:
                     f.write(favicon_content)
-                self.log_message(f"成功下载 {domain} 的图标: {file_path}")
+                print(f"成功下载 {domain} 的图标: {file_path}")
                 return True, favicon_url
             except Exception as e:
-                self.log_message(f"保存图标失败 {domain}: {e}")
+                print(f"保存图标失败 {domain}: {e}")
                 return False, favicon_url
         else:
-            self.log_message(f"无法获取 {domain} 的图标")
+            print(f"无法获取 {domain} 的图标")
             return False, None
     
     def get_file_extension(self, content):
@@ -117,19 +108,18 @@ class FaviconDownloader:
             # 默认使用PNG
             return '.png'
     
-    def process_domains_file(self, input_file, progress_callback=None):
+    def process_domains_file(self, input_file):
         """处理包含域名的txt文件"""
         domains = self.read_domains_from_file(input_file)
         
         if not domains:
-            self.log_message("没有找到有效的域名")
+            print("没有找到有效的域名")
             return
         
         successful_downloads = []
         failed_downloads = []
         
-        total_domains = len(domains)
-        for i, domain in enumerate(domains):
+        for domain in domains:
             success, favicon_url = self.download_favicon(domain)
             
             if success:
@@ -137,21 +127,15 @@ class FaviconDownloader:
             else:
                 failed_downloads.append(domain)
             
-            # 更新进度
-            if progress_callback:
-                progress_callback(i + 1, total_domains)
-            
             # 添加短暂延迟以避免请求过于频繁
             time.sleep(0.5)
         
         # 导出结果
         self.export_results(successful_downloads, failed_downloads)
         
-        self.log_message(f"\n下载完成！")
-        self.log_message(f"成功: {len(successful_downloads)} 个")
-        self.log_message(f"失败: {len(failed_downloads)} 个")
-        
-        return successful_downloads, failed_downloads
+        print(f"\n下载完成！")
+        print(f"成功: {len(successful_downloads)} 个")
+        print(f"失败: {len(failed_downloads)} 个")
     
     def export_results(self, successful_downloads, failed_downloads):
         """导出成功和失败的结果到txt文件"""
@@ -166,4 +150,23 @@ class FaviconDownloader:
             for domain in failed_downloads:
                 f.write(f"{domain}\n")
         
-        self.log_message("结果已导出到 successful_downloads.txt 和 failed_downloads.txt")
+        print("结果已导出到 successful_downloads.txt 和 failed_downloads.txt")
+
+def main():
+    downloader = FaviconDownloader()
+    
+    # 检查是否有输入文件参数
+    import sys
+    if len(sys.argv) > 1:
+        input_file = sys.argv[1]
+    else:
+        input_file = input("请输入包含网站域名的txt文件路径（每行一个域名）: ")
+    
+    if not os.path.exists(input_file):
+        print(f"文件 {input_file} 不存在")
+        return
+    
+    downloader.process_domains_file(input_file)
+
+if __name__ == "__main__":
+    main()
