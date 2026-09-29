@@ -1,78 +1,171 @@
+[English](README.en.md) | **中文**
+
 # 网站图标下载器
 
-一个用于批量下载网站图标（favicon）的工具，支持命令行和图形界面两种操作方式。
+批量下载网站 favicon（站点图标）的小工具，带图形界面，选好域名列表点一下就能批量跑完。界面支持中英文，默认跟随系统语言。
+
+## 功能特点
+
+- **批量处理**：从 txt 文件读取域名，一次跑完
+- **双语界面**：默认跟随系统语言（中文系统用中文，其它语言用英文），窗口里可随时切换；日志、状态栏和结果文件表头都跟着切
+- **多接口兜底**：7 个图标接口按「大陆能否直连」排序，前面的失败自动换下一个
+- **图形界面**：选文件、点开始，进度条和日志实时刷新
+- **多线程下载**：线程数可调（默认 4），实测 13 个域名 7 秒跑完
+- **可统一格式**：保持原样 / 统一 PNG / 统一 ICO / 统一 JPG，默认保持原样不转换
+- **记住设置**：线程数和保存格式存到 `favicon_settings.json`，下次打开还是上次的选择
+- **自动识别格式**：不看接口声明，按文件头判断 png / jpg / gif / ico / webp / svg
+- **自动记录**：成功和失败的结果分别导出到两个 txt
 
 ## 目录结构
 
 ```
 网站图标下载器/
-├── favicon_downloader.exe      # 命令行版本可执行文件
 ├── favicon_gui.exe             # 图形界面版本可执行文件
-├── README.md                   # 项目说明文档
-├── website_ico/                # 下载的图标文件存放目录
-├── successful_downloads.txt    # 成功下载的记录文件
-├── failed_downloads.txt        # 下载失败的记录文件
-├── test_list.txt        		# 需要被下降的网站域名列表（一行一个）
-└── src/                        # 源代码目录
-    ├── favicon_core.py         # 核心下载逻辑
-    ├── favicon_downloader.py   # 命令行版本主程序
-    ├── favicon_gui.py          # GUI版本主程序
-    ├── favicon_downloader.spec # PyInstaller配置文件
-    ├── favicon_gui.spec        # GUI版本PyInstaller配置文件
-    └── __pycache__/            # Python缓存文件目录
+├── README.md                   # 中文文档（本文件）
+├── README.en.md                # 英文文档
+├── LICENSE                     # GPL-2.0
+└── src/                        # 源代码
+    ├── favicon_gui.py          # 图形界面主程序
+    ├── favicon_core.py         # 核心下载逻辑（被 favicon_gui.py 引用）
+    ├── favicon_gui.spec        # PyInstaller 打包配置
+    └── favicon_gui.ico         # 程序图标（含 16~256 共 7 个尺寸）
 ```
 
-## 功能特点
+仓库里只放源代码和 exe。下面这些是运行时产物，首次运行时自动生成，不需要手动创建：
 
-- 支持从多个API获取网站图标（Google、faviconkit、Yandex、DuckDuckGo、Icon Horse）
-- 提供命令行和图形界面两种操作方式
-- 可以从文本文件批量读取域名
-- 自动导出成功和失败的下载结果
-- 支持多种图像格式（PNG、JPG、GIF、WEBP等）
+```
+website_ico/              # 下载好的图标，按域名命名
+successful_downloads.txt  # 成功记录：域名,图标URL
+failed_downloads.txt      # 失败记录：域名（一行一个）
+favicon_settings.json     # 上次用的线程数和格式（放在 exe 所在目录）
+```
+
+## 工作原理
+
+程序**不访问目标网站**，也不解析网页里的 `<link rel="icon">`，而是把域名直接拼进第三方图标接口的 URL 取图，按下面的顺序依次尝试，第一个通过校验的就保存下来。
+
+| 顺序 | 接口 | 大陆直连 | 实测表现（2026-09，福建电信） |
+|---|---|---|---|
+| 1 | `https://favicon.im/{域名}` | 可以 | 网站原图，分辨率最高（实测 936x946），约 1.3s |
+| 2 | `https://api.xinac.net/icon/?url={域名}` | 可以（国内节点） | 网站原图，约 100ms |
+| 3 | `https://favicon.cccyun.cc/{域名}` | 可以（国内节点） | 网站原图，约 100ms，但部分域名返回 403 或空响应 |
+| 4 | `https://icon.horse/icon/{域名}` | 可以 | 会重绘成 256x256，约 1.1s |
+| 5 | `https://favicon.yandex.net/favicon/{域名}/256` | 可以 | 只有 16x32 合成小图 |
+| 6 | `https://www.google.com/s2/favicons?domain={域名}&sz=256` | 不行 | 大陆直连超时，仅在代理/海外环境可用 |
+| 7 | `https://icons.duckduckgo.com/ip3/{域名}.ico` | 不行 | 同上 |
+
+一个响应要同时满足这几条才算成功：HTTP 状态码 200、内容非空、`content-type` 含 `image`（或者接口根本没给 content-type）、体积不小于 100 字节。小于 100 字节的视为默认占位图，跳过并换下一个接口。
+
+程序本身**不改动图片**——接口返回什么字节就原样写盘，所以图标的尺寸和格式完全取决于命中的是哪个接口。排在前 3 位的接口返回网站自己的图标文件（实测 baidu.com 由这三个接口拿到的 .ico 字节完全一致），第 4、5 位会重绘或放大，只有前面都拿不到原图时才兜底。
+
+`api.faviconkit.com` 过去在列表里，现已移除：该服务已停运，请求会被 302 到 GitHub 上一张 1x1 的透明占位图。
 
 ## 使用方法
 
-### 命令行版本 (favicon_downloader.exe)
+1. 双击 `favicon_gui.exe`
+2. 在「语言」下拉框里选中文或 English（**默认按系统语言自动选**：中文系统用中文，其它用英文；手动改过之后会记住你的选择）
+3. 点「浏览」选择域名文件
+4. 在「下载设置」里选线程数和保存格式，不改也能用（默认 4 线程、保持原样；选择会被记住）
+5. 点「开始下载」，界面上会实时显示进度和日志；中途可以点「停止」，已经下载好的图标会保留
 
-1. 创建一个包含域名的文本文件，每行一个域名，例如：
-   ```
-   www.google.com
-   www.github.com
-   www.stackoverflow.com
-   www.python.org
-   ```
+窗口标题带版本号（如「网站图标下载器 1.2」）。点「开始下载」后，日志开头会打印版本、线程数、**实际使用的保存格式**和输出目录：
 
-2. 运行可执行文件并指定域名文件路径：
-   ```
-   favicon_downloader.exe domains.txt
-   ```
+```
+运行版本 1.2（2026-09-29）
+共 13 个域名，线程数 4，保存格式 统一 PNG，输出目录 D:\github\website-favicon-downloader\website_ico
+```
 
-3. 程序将开始批量下载图标，下载过程中会有进度提示
+这两行是排查问题时最该先看的。切到英文界面后它们会变成：
 
-### 图形界面版本 (favicon_gui.exe)
+```
+Version 1.2 (2026-09-29)
+13 domains, 4 threads, output format: Force PNG, output directory: D:\github\website-favicon-downloader\website_ico
+```
 
-1. 双击运行 `favicon_gui.exe`
-2. 点击"浏览"按钮选择域名文件
-3. 点击"开始下载"按钮
-4. 可以实时查看下载进度和日志信息
+域名文件是一个普通 txt，每行一个域名：
 
-## 文件说明
+```
+baidu.com
+github.com
+https://www.zhihu.com/question/123
+```
 
-### 可执行文件
-- `favicon_downloader.exe`：命令行版本，适用于批处理和脚本
-- `favicon_gui.exe`：图形界面版本，操作更直观
+含 `//` 的行会自动截取域名部分，所以直接粘网址也可以。但不带协议又带路径的写法（例如 `baidu.com/xxx`）不会被截断，请避免这么写。
 
-### 输出文件
-- `website_ico/`：此文件夹存放所有下载的图标文件，每个图标以网站域名命名
-- `successful_downloads.txt`：记录成功下载的网站域名和对应的图标URL
-- `failed_downloads.txt`：记录下载失败的网站域名
+## 输出说明
 
-### 源代码
-- `src/`：包含所有Python源代码，用于开发和维护
+图标统一保存在 `website_ico/` 目录，文件名是「域名 + 扩展名」。扩展名不看接口声明的 content-type，而是按文件头判断，避免出现「内容是 ico、名字却是 png」这类问题：
 
-## 注意事项
+| 文件头 | 扩展名 |
+|---|---|
+| `89 50 4E 47` | `.png` |
+| `FF D8 FF` | `.jpg` |
+| `GIF87a` / `GIF89a` | `.gif` |
+| `00 00 01 00` / `00 00 02 00` | `.ico` |
+| `RIFF` + `WEBP` | `.webp` |
 
-- 为避免请求过于频繁，程序会在每次请求之间添加短暂延迟
-- 无效的图标文件（小于100字节）会被忽略
-- 程序会自动创建必要的文件夹和记录文件
-- 图标文件保存在 `website_ico` 文件夹中，您可以直接打开该文件夹查看下载的所有图标
+另外，以 `<svg` 或 `<?xml` 开头的文本（允许带 BOM 和空白）存为 `.svg`，都认不出来的一律按 `.png` 保存。
+
+如果「保存格式」选了统一 PNG / ICO / JPG，下载后会用 Pillow 转成对应格式，**只换容器格式、不改变图片尺寸**：转 PNG 和 JPG 与原图尺寸完全一致；转 ICO 时因为该格式单边上限 256，超过 256 的图会等比缩到 256 并居中放进透明方形画布，小于 256 的保持原样不放大。
+
+SVG 是矢量图，Pillow 没法把矢量渲染成像素。所以选了位图格式（PNG / ICO / JPG）时，程序不会直接采用 SVG，而是继续往后找能提供位图的接口——比如 github.com 会跳过 favicon.im 返回的 SVG，改用 xinac 的 32x32 PNG。只有当所有接口都只给 SVG 时，才会退回保存 `.svg`（日志里会说明）。
+
+同一个域名只会保留一个文件：如果这次要存 `baidu.com.png`，而目录里还留着上一轮的 `baidu.com.ico`，程序会先删掉旧文件再写入（日志里会提示），避免新旧文件并存、看不出格式有没有生效。
+
+`successful_downloads.txt` 记录成功的域名和实际命中的接口地址，`failed_downloads.txt` 记录失败的域名。排查问题时先看这两个文件。
+
+## 已知限制
+
+- **占位图会被当成成功。** icon.horse、xinac 这类接口在拉不到图标时不会报错，而是返回一张临时生成的占位图（HTTP 200，体积也大于 100 字节），程序无法识别，会出现「下载成功但拿到的是占位图」。
+- **链尾接口要白等。** 第 6、7 个接口在大陆连不上，只有前面全部失败时才会走到，每个要等满 10 秒超时才跳到下一个。
+- **多线程可能被限流。** 每个域名处理完固定等待 0.5 秒，线程数只控制并发；线程数开太高（比如 16）时部分接口可能返回 429，建议 4-6 之间。
+- **不去重、不追加。** 域名列表里的重复项不会去掉，同名图标会直接覆盖；两个结果 txt 每次运行都会被整体覆盖。
+- **停止是"软停止"。** 点「停止」后不会再发起新的请求，但正在下载的那几个域名会跑完当前请求；已经下载好的图标会保留。
+- **运行期间不能切语言。** 下载过程中「语言」「线程数」「保存格式」三个下拉框都会锁定，所以日志和结果文件始终是同一种语言。
+
+## 排查问题
+
+**1. 文件后缀不是选的格式**（例如选了统一 PNG，却出现 `github.com.svg`）
+
+先看日志开头那两行的「保存格式」：
+
+- 写的是 `保持原样（不转换）` → 说明点「开始下载」的那一刻，下拉框里就是「保持原样」，并不是 PNG。**运行期间下拉框是禁用的**，任务跑起来之后再改不生效，必须先把下拉框改好再点开始。
+- 写的是 `统一 PNG` 但个别文件仍是 `.svg` → 说明该域名所有接口都只返回矢量图，Pillow 转不了。日志里会有「只取到 SVG 矢量图，继续尝试后面的接口」以及「SVG 是矢量图，Pillow 转不了位图」的提示。
+
+也可以直接打开 exe 同目录的 `favicon_settings.json`，它记录着上次点「开始下载」时用的语言、线程数和格式（`format` 存的是内部标识：`keep` / `PNG` / `ICO` / `JPG`）：
+
+```json
+{ "lang": "zh", "workers": "4", "format": "PNG" }
+```
+
+**2. 确认跑的是哪个构建**
+
+看窗口标题，带版本号（如「网站图标下载器 1.3」）的才是有语言切换、线程数和格式选项的版本。更早的 exe 没有这些功能、也不会保存设置——标题里没有版本号的话，请用仓库里的 `favicon_gui.exe` 覆盖旧的。
+
+**3. 同一个域名会不会留下两个文件**
+
+不会。写入前会先删掉同域名的其它扩展名文件（日志提示「已删除同域名的旧文件」），所以每个域名在 `website_ico/` 里只会有一个文件，看到的即是这次运行的结果。
+
+**4. 拿到的图标是个首字母色块**
+
+那是接口返回的占位图，见「已知限制」第一条。
+
+## 重新打包
+
+需要 Python 以及 `requests`、`pillow`、`pyinstaller`（pillow 只有格式转换时用到）：
+
+```
+pip install requests pillow pyinstaller
+cd src
+pyinstaller favicon_gui.spec
+```
+
+spec 里的脚本路径是相对路径，所以要在 `src/` 目录下执行。产物在 `src/dist/`，把 `favicon_gui.exe` 复制回项目根目录即可，`src/build/` 可以删掉。
+
+仓库里的 exe 是 **1.3 版**（2026-09-29 用 Python 3.12 + PyInstaller 6.22 打包）。版本号定义在 `src/favicon_core.py` 的 `VERSION` 和 `BUILD_DATE` 两个常量里；界面文字分别在 `src/favicon_core.py` 的 `STRINGS`（日志文案）和 `src/favicon_gui.py` 的 `GUI_STRINGS`（窗口文字）里；默认语言的判定在 `src/favicon_core.py` 的 `detect_system_lang()`（Windows 下读 `GetUserDefaultUILanguage`，主语言 ID 是 0x04 即中文，其它一律英文；非 Windows 退回 `locale`）。改完代码记得重新打包，窗口标题和日志才会显示新版本号。
+
+程序图标在 `src/favicon_gui.ico`：spec 里用 `icon='favicon_gui.ico'` 把它嵌到 exe 上，同时通过 `datas` 打进包里，运行时由 `favicon_gui.py` 的 `_apply_window_icon()` 设成窗口和任务栏图标。要换图标就替换这个 ico 再重新打包，建议做成含 16/32/48/256 多个尺寸的 ico。
+
+## 许可证
+
+GPL-2.0，详见 [LICENSE](LICENSE)。
